@@ -1,0 +1,100 @@
+name: twrpdtgen
+
+on:
+  workflow_dispatch:
+     inputs:
+       username:
+         description: 'Username'
+         required: true
+         default: 'laityts'
+       email:
+         description: 'E-Mail'
+         required: true
+         default: 'laityts@gmail.com'
+       filelink:
+         description: 'ROM LINK(Support gdrive link)'
+         required: true
+       path:
+         description: 'Device Tree Path'
+         required: true
+         default: 'android_device_xiaomi_ginkgo-twrp'
+
+jobs:
+  twrpdtgen:
+    runs-on: ubuntu-18.04
+    continue-on-error: false
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+
+      - name: env
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y git wget curl openssh-server cpio python3 python3-setuptools
+          pip3 install twrpdtgen
+          pip3 install protobuf
+          pip3 install gdown
+
+      - id: var
+        name: Download
+        run: |
+          echo "Download"
+          if [[ ${{ github.event.inputs.filelink }} == *"drive.google.com"* ]]; then
+              if [[ ${{ github.event.inputs.filelink }} == *"file"* ]]; then
+                  DOWNLOAD_LINK=$(echo ${{ github.event.inputs.filelink }} | cut -d / -f 6)
+                  echo "DOWNLOAD_LINK: $DOWNLOAD_LINK"
+                  gdown https://drive.google.com/uc?id=${DOWNLOAD_LINK}
+              elif [[ ${{ github.event.inputs.filelink }} == *"id"* ]]; then
+                  DOWNLOAD_LINK1=$(echo ${{ github.event.inputs.filelink }} | cut -d = -f 2 | cut -d '&' -f 1)
+                  DOWNLOAD_LINK2=$(echo ${{ github.event.inputs.filelink }} | cut -d = -f 4)
+                  echo "DOWNLOAD_LINK1: $DOWNLOAD_LINK1"
+                  echo "DOWNLOAD_LINK2: $DOWNLOAD_LINK2"
+                  gdown https://drive.google.com/uc?id=${DOWNLOAD_LINK1} || gdown https://drive.google.com/uc?id=${DOWNLOAD_LINK2}
+              fi
+          else
+              if [[ ! -z "${{ github.event.inputs.filename }}" ]]; then
+                  FILENAME="${{ github.event.inputs.filename }}"
+                  ${{ github.event.inputs.mode }} ${{ github.event.inputs.filelink }} -${{ github.event.inputs.output }} "$FILENAME"
+              else
+                  ${{ github.event.inputs.mode }} ${{ github.event.inputs.filelink }}
+              fi
+          fi
+          ls
+          FILENAME="$(ls -lS * | head -1 | awk '{print $9}')"
+          echo "FILENAME: $FILENAME"
+          FILENAME=$(basename ${FILENAME})
+          echo "::set-output name=filename::$FILENAME"
+
+      - name: Generate SSH Keys
+        run: |
+          echo $PWD
+          echo "创建SSH Keys"
+          ls
+          ssh-keygen -q -f "$HOME/.ssh/id_rsa" -N '' -t rsa -C "${{ github.event.inputs.email }}"
+          ls -al $HOME/.ssh/
+          cat $HOME/.ssh/id_rsa
+          cat $HOME/.ssh/id_rsa.pub
+          cat ssh/id_rsa > $HOME/.ssh/id_rsa
+          cat ssh/id_rsa.pub > $HOME/.ssh/id_rsa.pub
+          diff ssh/id_rsa $HOME/.ssh/id_rsa || true
+          diff ssh/id_rsa.pub $HOME/.ssh/id_rsa.pub || true
+          ls -al $HOME/.ssh/
+          cat $HOME/.ssh/id_rsa
+          cat $HOME/.ssh/id_rsa.pub
+          git config --global user.email "${{ github.event.inputs.email }}"
+          git config --global user.name "${{ github.event.inputs.username }}"
+
+      - name: twrpdtgen
+        run: |
+          python3 -m twrpdtgen -o ${{ github.event.inputs.path }} --git -d ${{ github.event.inputs.filename }}
+          cd ${{ github.event.inputs.path }}
+          ls -al
+
+      - name: Upload to Artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{ github.event.inputs.path }}
+          path: |
+            ${{ github.event.inputs.path }}
+          retention-days: 7
